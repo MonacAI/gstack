@@ -523,6 +523,429 @@ async function fetchRefs() {
   } catch {}
 }
 
+// ─── Inspector Tab ──────────────────────────────────────────────
+
+let inspectorPickerActive = false;
+let inspectorData = null; // last inspect result
+let inspectorModifications = []; // tracked style changes
+let inspectorSSE = null;
+
+// Inspector DOM refs
+const inspectorPickBtn = document.getElementById('inspector-pick-btn');
+const inspectorSelected = document.getElementById('inspector-selected');
+const inspectorModeBadge = document.getElementById('inspector-mode-badge');
+const inspectorEmpty = document.getElementById('inspector-empty');
+const inspectorLoading = document.getElementById('inspector-loading');
+const inspectorError = document.getElementById('inspector-error');
+const inspectorPanels = document.getElementById('inspector-panels');
+const inspectorBoxmodel = document.getElementById('inspector-boxmodel');
+const inspectorRules = document.getElementById('inspector-rules');
+const inspectorRuleCount = document.getElementById('inspector-rule-count');
+const inspectorComputed = document.getElementById('inspector-computed');
+const inspectorQuickedit = document.getElementById('inspector-quickedit');
+const inspectorSend = document.getElementById('inspector-send');
+const inspectorSendBtn = document.getElementById('inspector-send-btn');
+
+// Pick button
+inspectorPickBtn.addEventListener('click', () => {
+  if (inspectorPickerActive) {
+    inspectorPickerActive = false;
+    inspectorPickBtn.classList.remove('active');
+    chrome.runtime.sendMessage({ type: 'stopInspector' });
+  } else {
+    inspectorPickerActive = true;
+    inspectorPickBtn.classList.add('active');
+    inspectorShowLoading(false); // don't show loading yet, just activate
+    chrome.runtime.sendMessage({ type: 'startInspector' }, (result) => {
+      if (result?.error) {
+        inspectorPickerActive = false;
+        inspectorPickBtn.classList.remove('active');
+        inspectorShowError(result.error);
+      }
+    });
+  }
+});
+
+function inspectorShowEmpty() {
+  inspectorEmpty.style.display = '';
+  inspectorLoading.style.display = 'none';
+  inspectorError.style.display = 'none';
+  inspectorPanels.style.display = 'none';
+  inspectorSend.style.display = 'none';
+}
+
+function inspectorShowLoading(show) {
+  if (show) {
+    inspectorEmpty.style.display = 'none';
+    inspectorLoading.style.display = '';
+    inspectorError.style.display = 'none';
+    inspectorPanels.style.display = 'none';
+  } else {
+    inspectorLoading.style.display = 'none';
+  }
+}
+
+function inspectorShowError(message) {
+  inspectorEmpty.style.display = 'none';
+  inspectorLoading.style.display = 'none';
+  inspectorError.style.display = '';
+  inspectorError.textContent = message;
+  inspectorPanels.style.display = 'none';
+}
+
+function inspectorShowData(data) {
+  inspectorData = data;
+  inspectorModifications = [];
+  inspectorEmpty.style.display = 'none';
+  inspectorLoading.style.display = 'none';
+  inspectorError.style.display = 'none';
+  inspectorPanels.style.display = '';
+  inspectorSend.style.display = '';
+
+  // Update toolbar
+  const tag = data.tagName || '?';
+  const cls = data.classes && data.classes.length > 0 ? '.' + data.classes.join('.') : '';
+  const idStr = data.id ? '#' + data.id : '';
+  inspectorSelected.textContent = `<${tag}>${idStr}${cls}`;
+  inspectorSelected.title = data.selector;
+
+  // Mode badge
+  if (data.mode === 'basic') {
+    inspectorModeBadge.textContent = 'Basic mode';
+    inspectorModeBadge.style.display = '';
+    inspectorModeBadge.className = 'inspector-mode-badge basic';
+  } else if (data.mode === 'cdp') {
+    inspectorModeBadge.textContent = 'CDP';
+    inspectorModeBadge.style.display = '';
+    inspectorModeBadge.className = 'inspector-mode-badge cdp';
+  } else {
+    inspectorModeBadge.style.display = 'none';
+  }
+
+  // Render sections
+  renderBoxModel(data);
+  renderMatchedRules(data);
+  renderComputedStyles(data);
+  renderQuickEdit(data);
+  updateSendButton();
+}
+
+// ─── Box Model Rendering ────────────────────────────────────────
+
+function renderBoxModel(data) {
+  const box = data.basicData?.boxModel || data.boxModel;
+  if (!box) { inspectorBoxmodel.innerHTML = '<span class="inspector-no-data">No box model data</span>'; return; }
+
+  const m = box.margin || {};
+  const b = box.border || {};
+  const p = box.padding || {};
+  const c = box.content || {};
+
+  inspectorBoxmodel.innerHTML = `
+    <div class="boxmodel-margin">
+      <span class="boxmodel-label">margin</span>
+      <span class="boxmodel-value boxmodel-top">${fmtBoxVal(m.top)}</span>
+      <span class="boxmodel-value boxmodel-right">${fmtBoxVal(m.right)}</span>
+      <span class="boxmodel-value boxmodel-bottom">${fmtBoxVal(m.bottom)}</span>
+      <span class="boxmodel-value boxmodel-left">${fmtBoxVal(m.left)}</span>
+      <div class="boxmodel-border">
+        <span class="boxmodel-label">border</span>
+        <span class="boxmodel-value boxmodel-top">${fmtBoxVal(b.top)}</span>
+        <span class="boxmodel-value boxmodel-right">${fmtBoxVal(b.right)}</span>
+        <span class="boxmodel-value boxmodel-bottom">${fmtBoxVal(b.bottom)}</span>
+        <span class="boxmodel-value boxmodel-left">${fmtBoxVal(b.left)}</span>
+        <div class="boxmodel-padding">
+          <span class="boxmodel-label">padding</span>
+          <span class="boxmodel-value boxmodel-top">${fmtBoxVal(p.top)}</span>
+          <span class="boxmodel-value boxmodel-right">${fmtBoxVal(p.right)}</span>
+          <span class="boxmodel-value boxmodel-bottom">${fmtBoxVal(p.bottom)}</span>
+          <span class="boxmodel-value boxmodel-left">${fmtBoxVal(p.left)}</span>
+          <div class="boxmodel-content">
+            <span>${Math.round(c.width || 0)} x ${Math.round(c.height || 0)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function fmtBoxVal(v) {
+  if (v === undefined || v === null) return '-';
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  if (isNaN(n) || n === 0) return '0';
+  return Math.round(n * 10) / 10;
+}
+
+// ─── Matched Rules Rendering ────────────────────────────────────
+
+function renderMatchedRules(data) {
+  const rules = data.matchedRules || data.basicData?.matchedRules || [];
+  inspectorRuleCount.textContent = rules.length > 0 ? `(${rules.length})` : '';
+
+  if (rules.length === 0) {
+    inspectorRules.innerHTML = '<div class="inspector-no-data">No matched rules</div>';
+    return;
+  }
+
+  // Separate UA rules from author rules
+  const authorRules = [];
+  const uaRules = [];
+  for (const rule of rules) {
+    if (rule.origin === 'user-agent' || rule.isUA) {
+      uaRules.push(rule);
+    } else {
+      authorRules.push(rule);
+    }
+  }
+
+  let html = '';
+
+  // Author rules (expanded)
+  for (const rule of authorRules) {
+    html += renderRule(rule, false);
+  }
+
+  // UA rules (collapsed by default)
+  if (uaRules.length > 0) {
+    html += `
+      <div class="inspector-ua-rules">
+        <button class="inspector-ua-toggle collapsed" aria-expanded="false">
+          <span class="inspector-toggle-arrow">&#x25B6;</span>
+          User Agent (${uaRules.length})
+        </button>
+        <div class="inspector-ua-body collapsed">
+    `;
+    for (const rule of uaRules) {
+      html += renderRule(rule, true);
+    }
+    html += '</div></div>';
+  }
+
+  inspectorRules.innerHTML = html;
+
+  // Bind UA toggle
+  const uaToggle = inspectorRules.querySelector('.inspector-ua-toggle');
+  if (uaToggle) {
+    uaToggle.addEventListener('click', () => {
+      const body = inspectorRules.querySelector('.inspector-ua-body');
+      const isCollapsed = uaToggle.classList.contains('collapsed');
+      uaToggle.classList.toggle('collapsed', !isCollapsed);
+      uaToggle.setAttribute('aria-expanded', isCollapsed);
+      uaToggle.querySelector('.inspector-toggle-arrow').innerHTML = isCollapsed ? '&#x25BC;' : '&#x25B6;';
+      body.classList.toggle('collapsed', !isCollapsed);
+    });
+  }
+}
+
+function renderRule(rule, isUA) {
+  const selectorText = escapeHtml(rule.selector || '');
+  const truncatedSelector = selectorText.length > 35 ? selectorText.slice(0, 35) + '...' : selectorText;
+  const source = rule.source || '';
+  const sourceDisplay = source.includes('/') ? source.split('/').pop() : source;
+  const specificity = rule.specificity || '';
+
+  let propsHtml = '';
+  const props = rule.properties || [];
+  for (const prop of props) {
+    const overridden = prop.overridden ? ' overridden' : '';
+    const nameHtml = escapeHtml(prop.name);
+    const valText = escapeHtml(prop.value || '');
+    const truncatedVal = valText.length > 30 ? valText.slice(0, 30) + '...' : valText;
+    const priority = prop.priority === 'important' ? ' <span class="inspector-important">!important</span>' : '';
+    propsHtml += `<div class="inspector-prop${overridden}"><span class="inspector-prop-name">${nameHtml}</span>: <span class="inspector-prop-value" title="${valText}">${truncatedVal}</span>${priority};</div>`;
+  }
+
+  return `
+    <div class="inspector-rule" role="treeitem">
+      <div class="inspector-rule-header">
+        <span class="inspector-selector" title="${selectorText}">${truncatedSelector}</span>
+        ${specificity ? `<span class="inspector-specificity">${escapeHtml(specificity)}</span>` : ''}
+      </div>
+      <div class="inspector-rule-props">${propsHtml}</div>
+      ${sourceDisplay ? `<div class="inspector-rule-source">${escapeHtml(sourceDisplay)}</div>` : ''}
+    </div>
+  `;
+}
+
+// ─── Computed Styles Rendering ──────────────────────────────────
+
+function renderComputedStyles(data) {
+  const styles = data.computedStyles || data.basicData?.computedStyles || {};
+  const keys = Object.keys(styles);
+
+  if (keys.length === 0) {
+    inspectorComputed.innerHTML = '<div class="inspector-no-data">No computed styles</div>';
+    return;
+  }
+
+  let html = '';
+  for (const key of keys) {
+    const val = styles[key];
+    if (!val || val === 'none' || val === 'normal' || val === 'auto' || val === '0px' || val === 'rgba(0, 0, 0, 0)') continue;
+    html += `<div class="inspector-computed-row"><span class="inspector-prop-name">${escapeHtml(key)}</span>: <span class="inspector-prop-value">${escapeHtml(val)}</span></div>`;
+  }
+
+  if (!html) {
+    html = '<div class="inspector-no-data">All values are defaults</div>';
+  }
+
+  inspectorComputed.innerHTML = html;
+}
+
+// ─── Quick Edit ─────────────────────────────────────────────────
+
+function renderQuickEdit(data) {
+  const selector = data.selector;
+  if (!selector) { inspectorQuickedit.innerHTML = ''; return; }
+
+  // Show common editable properties with current values
+  const editableProps = ['color', 'background-color', 'font-size', 'padding', 'margin', 'border', 'display', 'opacity'];
+  const computed = data.computedStyles || data.basicData?.computedStyles || {};
+
+  let html = '<div class="inspector-quickedit-list">';
+  for (const prop of editableProps) {
+    const val = computed[prop] || '';
+    html += `
+      <div class="inspector-quickedit-row" data-prop="${escapeHtml(prop)}">
+        <span class="inspector-prop-name">${escapeHtml(prop)}</span>:
+        <span class="inspector-quickedit-value" data-selector="${escapeHtml(selector)}" data-prop="${escapeHtml(prop)}" tabindex="0" role="button" title="Click to edit">${escapeHtml(val || '(none)')}</span>
+      </div>
+    `;
+  }
+  html += '</div>';
+  inspectorQuickedit.innerHTML = html;
+
+  // Bind click-to-edit
+  inspectorQuickedit.querySelectorAll('.inspector-quickedit-value').forEach(el => {
+    el.addEventListener('click', () => startQuickEdit(el));
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startQuickEdit(el); }
+    });
+  });
+}
+
+function startQuickEdit(valueEl) {
+  if (valueEl.querySelector('input')) return; // already editing
+
+  const currentVal = valueEl.textContent === '(none)' ? '' : valueEl.textContent;
+  const prop = valueEl.dataset.prop;
+  const selector = valueEl.dataset.selector;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'inspector-quickedit-input';
+  input.value = currentVal;
+  valueEl.textContent = '';
+  valueEl.appendChild(input);
+  input.focus();
+  input.select();
+
+  function commit() {
+    const newVal = input.value.trim();
+    valueEl.textContent = newVal || '(none)';
+    if (newVal && newVal !== currentVal) {
+      chrome.runtime.sendMessage({
+        type: 'applyStyle',
+        selector,
+        property: prop,
+        value: newVal,
+      });
+      inspectorModifications.push({ property: prop, value: newVal, selector });
+      updateSendButton();
+    }
+  }
+
+  function cancel() {
+    valueEl.textContent = currentVal || '(none)';
+  }
+
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { e.preventDefault(); input.removeEventListener('blur', commit); cancel(); }
+  });
+}
+
+// ─── Send to Agent ──────────────────────────────────────────────
+
+function updateSendButton() {
+  if (inspectorModifications.length > 0) {
+    inspectorSendBtn.textContent = 'Send to Code';
+    inspectorSendBtn.title = `${inspectorModifications.length} modification(s) to send`;
+  } else {
+    inspectorSendBtn.textContent = 'Send to Agent';
+    inspectorSendBtn.title = 'Send full inspector data';
+  }
+}
+
+inspectorSendBtn.addEventListener('click', () => {
+  if (!inspectorData) return;
+
+  let message;
+  if (inspectorModifications.length > 0) {
+    // Format modification diff
+    const diffs = inspectorModifications.map(m =>
+      `  ${m.property}: ${m.value} (selector: ${m.selector})`
+    ).join('\n');
+    message = `CSS Inspector modifications:\n\nSelector: ${inspectorData.selector}\n\nChanges:\n${diffs}`;
+
+    // Include source file info if available
+    const rules = inspectorData.matchedRules || inspectorData.basicData?.matchedRules || [];
+    const sources = rules.filter(r => r.source && r.source !== 'inline').map(r => r.source);
+    if (sources.length > 0) {
+      message += `\n\nSource files:\n${[...new Set(sources)].map(s => `  ${s}`).join('\n')}`;
+    }
+  } else {
+    // Send full inspector data
+    message = `CSS Inspector data for: ${inspectorData.selector}\n\n${JSON.stringify(inspectorData, null, 2)}`;
+  }
+
+  chrome.runtime.sendMessage({ type: 'sidebar-command', message });
+});
+
+// ─── Section Toggles ────────────────────────────────────────────
+
+document.querySelectorAll('.inspector-section-toggle').forEach(toggle => {
+  toggle.addEventListener('click', () => {
+    const section = toggle.dataset.section;
+    const body = document.getElementById(`inspector-${section}`);
+    const isCollapsed = toggle.classList.contains('collapsed');
+
+    toggle.classList.toggle('collapsed', !isCollapsed);
+    toggle.setAttribute('aria-expanded', isCollapsed);
+    toggle.querySelector('.inspector-toggle-arrow').innerHTML = isCollapsed ? '&#x25BC;' : '&#x25B6;';
+    body.classList.toggle('collapsed', !isCollapsed);
+  });
+});
+
+// ─── Inspector SSE ──────────────────────────────────────────────
+
+function connectInspectorSSE() {
+  if (!serverUrl || !serverToken) return;
+  if (inspectorSSE) { inspectorSSE.close(); inspectorSSE = null; }
+
+  const tokenParam = serverToken ? `&token=${serverToken}` : '';
+  const url = `${serverUrl}/inspector/events?_=${Date.now()}${tokenParam}`;
+
+  try {
+    inspectorSSE = new EventSource(url);
+
+    inspectorSSE.addEventListener('inspectResult', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        inspectorShowData(data);
+      } catch {}
+    });
+
+    inspectorSSE.addEventListener('error', () => {
+      // SSE connection failed — inspector works without it (basic mode)
+      if (inspectorSSE) { inspectorSSE.close(); inspectorSSE = null; }
+    });
+  } catch {
+    // SSE not available — that's fine
+  }
+}
+
 // ─── Server Discovery ───────────────────────────────────────────
 
 function updateConnection(url, token) {
@@ -535,6 +958,7 @@ function updateConnection(url, token) {
     document.getElementById('footer-port').textContent = `:${port}`;
     setConnState('connected');
     connectSSE();
+    connectInspectorSSE();
     if (chatPollInterval) clearInterval(chatPollInterval);
     chatPollInterval = setInterval(pollChat, 1000);
     pollChat();
@@ -622,6 +1046,19 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (document.querySelector('.tab[data-tab="refs"].active')) {
       fetchRefs();
     }
+  }
+  if (msg.type === 'inspectResult') {
+    inspectorPickerActive = false;
+    inspectorPickBtn.classList.remove('active');
+    if (msg.data) {
+      inspectorShowData(msg.data);
+    } else {
+      inspectorShowError('Element not found, try picking again');
+    }
+  }
+  if (msg.type === 'pickerCancelled') {
+    inspectorPickerActive = false;
+    inspectorPickBtn.classList.remove('active');
   }
 });
 
