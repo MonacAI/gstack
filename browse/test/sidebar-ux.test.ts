@@ -674,3 +674,126 @@ describe('sidebar CSS (sidepanel.css)', () => {
     expect(toolSection).not.toContain('font-mono');
   });
 });
+
+// ─── Inspector message allowlist fix ────────────────────────────
+
+describe('inspector message allowlist fix', () => {
+  const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
+
+  test('ALLOWED_TYPES includes inspector message types', () => {
+    const allowListSection = bgSrc.slice(
+      bgSrc.indexOf('const ALLOWED_TYPES'),
+      bgSrc.indexOf(']);', bgSrc.indexOf('const ALLOWED_TYPES')) + 3,
+    );
+    expect(allowListSection).toContain('startInspector');
+    expect(allowListSection).toContain('stopInspector');
+    expect(allowListSection).toContain('elementPicked');
+    expect(allowListSection).toContain('pickerCancelled');
+    expect(allowListSection).toContain('applyStyle');
+    expect(allowListSection).toContain('inspectResult');
+  });
+});
+
+// ─── CSP fallback basic picker ──────────────────────────────────
+
+describe('CSP fallback basic picker', () => {
+  const contentSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'content.js'), 'utf-8');
+  const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
+
+  test('content.js contains startBasicPicker message handler', () => {
+    expect(contentSrc).toContain("msg.type === 'startBasicPicker'");
+    expect(contentSrc).toContain('startBasicPicker()');
+  });
+
+  test('content.js contains captureBasicData function with getComputedStyle', () => {
+    expect(contentSrc).toContain('function captureBasicData(');
+    expect(contentSrc).toContain('getComputedStyle(');
+    expect(contentSrc).toContain('getBoundingClientRect()');
+  });
+
+  test('content.js contains CSSOM iteration with cross-origin try/catch', () => {
+    expect(contentSrc).toContain('document.styleSheets');
+    expect(contentSrc).toContain('cssRules');
+    expect(contentSrc).toContain('cross-origin');
+  });
+
+  test('content.js saves and restores outline on elements', () => {
+    expect(contentSrc).toContain('basicPickerSavedOutline');
+    // Outline is restored in cleanup and highlight functions
+    expect(contentSrc).toContain('.style.outline = basicPickerSavedOutline');
+  });
+
+  test('content.js basic picker sends inspectResult with mode basic', () => {
+    expect(contentSrc).toContain("mode: 'basic'");
+    expect(contentSrc).toContain("type: 'inspectResult'");
+  });
+
+  test('content.js basic picker cleans up on Escape', () => {
+    expect(contentSrc).toContain('onBasicKeydown');
+    expect(contentSrc).toContain("e.key === 'Escape'");
+    expect(contentSrc).toContain('basicPickerCleanup');
+  });
+
+  test('background.js injectInspector has separate try blocks for executeScript and insertCSS', () => {
+    const injectFn = bgSrc.slice(
+      bgSrc.indexOf('async function injectInspector('),
+      bgSrc.indexOf('\n}', bgSrc.indexOf('async function injectInspector(') + 1) + 2,
+    );
+    // executeScript and insertCSS should be in separate try blocks
+    expect(injectFn).toContain('executeScript');
+    expect(injectFn).toContain('insertCSS');
+    // Fallback sends startBasicPicker
+    expect(injectFn).toContain("type: 'startBasicPicker'");
+    expect(injectFn).toContain("mode: 'basic'");
+  });
+
+  test('background.js stores inspectorMode for routing', () => {
+    expect(bgSrc).toContain('inspectorMode');
+  });
+});
+
+// ─── Cleanup and screenshot buttons ─────────────────────────────
+
+describe('cleanup and screenshot buttons', () => {
+  const html = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.html'), 'utf-8');
+  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+  const css = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.css'), 'utf-8');
+
+  test('sidepanel.html contains cleanup and screenshot buttons', () => {
+    expect(html).toContain('inspector-cleanup-btn');
+    expect(html).toContain('inspector-screenshot-btn');
+    expect(html).toContain('inspector-action-btn');
+  });
+
+  test('sidepanel.js cleanup handler POSTs to /command with cleanup', () => {
+    expect(js).toContain("command: 'cleanup'");
+    expect(js).toContain("args: ['--all']");
+  });
+
+  test('sidepanel.js screenshot handler POSTs to /command with screenshot', () => {
+    expect(js).toContain("command: 'screenshot'");
+  });
+
+  test('sidepanel.js cleanup resets inspector state after success', () => {
+    // After cleanup, inspector data is stale
+    const cleanupSection = js.slice(
+      js.indexOf('inspector-cleanup-btn'),
+      js.indexOf('// ─── Screenshot'),
+    );
+    expect(cleanupSection).toContain('inspectorShowEmpty');
+  });
+
+  test('sidepanel.js has notification rendering for type notification', () => {
+    expect(js).toContain("entry.type === 'notification'");
+    expect(js).toContain('chat-notification');
+  });
+
+  test('sidepanel.css contains inspector-action-btn styles', () => {
+    expect(css).toContain('.inspector-action-btn');
+    expect(css).toContain('.inspector-action-btn.loading');
+  });
+
+  test('sidepanel.css contains chat-notification styles', () => {
+    expect(css).toContain('.chat-notification');
+  });
+});
