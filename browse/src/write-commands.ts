@@ -98,6 +98,26 @@ const CLEANUP_SELECTORS = {
     // App download banners
     '[class*="app-banner"]', '[class*="smart-banner"]', '[class*="app-download"]',
     '[id*="branch-banner"]', '.smartbanner',
+    // Cross-promotion / "follow us" / "preferred source" widgets
+    '[class*="promo-banner"]', '[class*="cross-promo"]', '[class*="partner-promo"]',
+    '[class*="preferred-source"]', '[class*="google-promo"]',
+  ],
+  clutter: [
+    // Audio/podcast player widgets (not part of the article text)
+    '[class*="audio-player"]', '[class*="podcast-player"]', '[class*="listen-widget"]',
+    '[class*="everlit"]', '[class*="Everlit"]',
+    'audio', // bare audio elements
+    // Sidebar games/puzzles widgets
+    '[class*="puzzle"]', '[class*="daily-game"]', '[class*="games-widget"]',
+    '[class*="crossword-promo"]', '[class*="mini-game"]',
+    // "Most Popular" / "Trending" sidebar recirculation (not the top nav trending bar)
+    'aside [class*="most-popular"]', 'aside [class*="trending"]',
+    'aside [class*="most-read"]', 'aside [class*="recommended"]',
+    // Related articles / recirculation at bottom
+    '[class*="related-articles"]', '[class*="more-stories"]',
+    '[class*="recirculation"]', '[class*="taboola"]', '[class*="outbrain"]',
+    // Hearst-specific (SF Chronicle, etc.)
+    '[class*="nativo"]', '[data-tb-region]',
   ],
   sticky: [
     // Handled via JavaScript evaluation, not pure selectors
@@ -486,7 +506,7 @@ export async function handleWriteCommand(
     case 'cleanup': {
       // Parse flags
       let doAds = false, doCookies = false, doSticky = false, doSocial = false;
-      let doOverlays = false;
+      let doOverlays = false, doClutter = false;
       let doAll = false;
 
       // Default to --all if no args (most common use case from sidebar button)
@@ -501,14 +521,15 @@ export async function handleWriteCommand(
           case '--sticky': doSticky = true; break;
           case '--social': doSocial = true; break;
           case '--overlays': doOverlays = true; break;
+          case '--clutter': doClutter = true; break;
           case '--all': doAll = true; break;
           default:
-            throw new Error(`Unknown cleanup flag: ${arg}. Use: --ads, --cookies, --sticky, --social, --overlays, --all`);
+            throw new Error(`Unknown cleanup flag: ${arg}. Use: --ads, --cookies, --sticky, --social, --overlays, --clutter, --all`);
         }
       }
 
       if (doAll) {
-        doAds = doCookies = doSticky = doSocial = doOverlays = true;
+        doAds = doCookies = doSticky = doSocial = doOverlays = doClutter = true;
       }
 
       const removed: string[] = [];
@@ -519,6 +540,7 @@ export async function handleWriteCommand(
       if (doCookies) selectors.push(...CLEANUP_SELECTORS.cookies);
       if (doSocial) selectors.push(...CLEANUP_SELECTORS.social);
       if (doOverlays) selectors.push(...CLEANUP_SELECTORS.overlays);
+      if (doClutter) selectors.push(...CLEANUP_SELECTORS.clutter);
 
       if (selectors.length > 0) {
         const count = await page.evaluate((sels: string[]) => {
@@ -539,6 +561,7 @@ export async function handleWriteCommand(
           if (doCookies) removed.push('cookie banners');
           if (doSocial) removed.push('social widgets');
           if (doOverlays) removed.push('overlays/popups');
+          if (doClutter) removed.push('clutter');
         }
       }
 
@@ -546,22 +569,35 @@ export async function handleWriteCommand(
       if (doSticky) {
         const stickyCount = await page.evaluate(() => {
           let removed = 0;
+          // Collect all sticky/fixed elements, sort by vertical position
+          const stickyEls: Array<{ el: Element; top: number; width: number; height: number }> = [];
           const allElements = document.querySelectorAll('*');
+          const viewportWidth = window.innerWidth;
           for (const el of allElements) {
             const style = getComputedStyle(el);
             if (style.position === 'fixed' || style.position === 'sticky') {
-              const tag = el.tagName.toLowerCase();
-              // Skip main nav/header elements at the top of the page
-              if (tag === 'nav' || tag === 'header') continue;
-              if (el.getAttribute('role') === 'navigation') continue;
-              // Skip elements at the very top that look like navbars
               const rect = el.getBoundingClientRect();
-              if (rect.top <= 10 && rect.height < 100 && tag !== 'div') continue;
-              // Skip the gstack control indicator
-              if (el.id === 'gstack-ctrl') continue;
-              (el as HTMLElement).style.setProperty('display', 'none', 'important');
-              removed++;
+              stickyEls.push({ el, top: rect.top, width: rect.width, height: rect.height });
             }
+          }
+          // Sort by vertical position (topmost first)
+          stickyEls.sort((a, b) => a.top - b.top);
+          let preservedTopNav = false;
+          for (const { el, top, width, height } of stickyEls) {
+            const tag = el.tagName.toLowerCase();
+            // Always skip nav/header semantic elements
+            if (tag === 'nav' || tag === 'header') continue;
+            if (el.getAttribute('role') === 'navigation') continue;
+            // Skip the gstack control indicator
+            if ((el as HTMLElement).id === 'gstack-ctrl') continue;
+            // Preserve the FIRST full-width element near the top (site's main nav bar)
+            // This catches divs that act as navbars but aren't semantic <nav> elements
+            if (!preservedTopNav && top <= 50 && width > viewportWidth * 0.8 && height < 120) {
+              preservedTopNav = true;
+              continue;
+            }
+            (el as HTMLElement).style.setProperty('display', 'none', 'important');
+            removed++;
           }
           return removed;
         });
@@ -609,6 +645,34 @@ export async function handleWriteCommand(
         return fixed;
       });
       if (scrollFixed > 0) removed.push('scroll unlocked');
+
+      // Remove "ADVERTISEMENT" / "Article continues below" text labels
+      const adLabelCount = await page.evaluate(() => {
+        let removed = 0;
+        const adTextPatterns = [
+          /^advertisement$/i, /^sponsored$/i, /^promoted$/i,
+          /article continues/i, /continues below/i,
+          /^ad$/i, /^paid content$/i, /^partner content$/i,
+        ];
+        // Walk text-heavy small elements looking for ad labels
+        const candidates = document.querySelectorAll('div, span, p, figcaption, label');
+        for (const el of candidates) {
+          const text = (el.textContent || '').trim();
+          if (text.length > 50) continue; // Too much text, probably real content
+          if (adTextPatterns.some(p => p.test(text))) {
+            // Also hide the parent if it's a wrapper with little else
+            const parent = el.parentElement;
+            if (parent && (parent.textContent || '').trim().length < 80) {
+              (parent as HTMLElement).style.setProperty('display', 'none', 'important');
+            } else {
+              (el as HTMLElement).style.setProperty('display', 'none', 'important');
+            }
+            removed++;
+          }
+        }
+        return removed;
+      });
+      if (adLabelCount > 0) removed.push(`${adLabelCount} ad labels`);
 
       // Remove empty ad placeholder whitespace (divs that are now empty after ad removal)
       const collapsedCount = await page.evaluate(() => {

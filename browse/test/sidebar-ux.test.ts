@@ -771,22 +771,24 @@ describe('cleanup and screenshot buttons', () => {
     expect(html).toContain('quick-actions');
   });
 
-  test('sidepanel.js cleanup handler POSTs to /command with cleanup', () => {
-    expect(js).toContain("command: 'cleanup'");
-    expect(js).toContain("args: ['--all']");
-  });
-
-  test('sidepanel.js screenshot handler POSTs to /command with screenshot', () => {
-    expect(js).toContain("command: 'screenshot'");
-  });
-
-  test('sidepanel.js cleanup resets inspector state after success', () => {
-    // runCleanup should call inspectorShowEmpty after cleanup
+  test('cleanup button sends smart prompt to sidebar agent (not just deterministic selectors)', () => {
+    // Should use /sidebar-command endpoint (agent-based) not just /command (deterministic)
     const cleanupFn = js.slice(
       js.indexOf('async function runCleanup('),
       js.indexOf('async function runScreenshot('),
     );
-    expect(cleanupFn).toContain('inspectorShowEmpty');
+    expect(cleanupFn).toContain('sidebar-command');
+    expect(cleanupFn).toContain('cleanupPrompt');
+    // Should include both deterministic first pass AND agent snapshot analysis
+    expect(cleanupFn).toContain('cleanup --all');
+    expect(cleanupFn).toContain('snapshot -i');
+    // Should instruct agent to KEEP site branding
+    expect(cleanupFn).toContain('KEEP');
+    expect(cleanupFn).toContain('header/masthead/logo');
+  });
+
+  test('sidepanel.js screenshot handler POSTs to /command with screenshot', () => {
+    expect(js).toContain("command: 'screenshot'");
   });
 
   test('sidepanel.js has notification rendering for type notification', () => {
@@ -880,7 +882,31 @@ describe('cleanup heuristics (write-commands.ts)', () => {
   });
 
   test('sticky cleanup skips gstack control indicator', () => {
-    expect(wcSrc).toContain("el.id === 'gstack-ctrl'");
+    expect(wcSrc).toContain("gstack-ctrl");
+  });
+
+  test('CLEANUP_SELECTORS has clutter category', () => {
+    expect(wcSrc).toContain('clutter: [');
+    expect(wcSrc).toContain('audio-player');
+    expect(wcSrc).toContain('podcast-player');
+    expect(wcSrc).toContain('puzzle');
+    expect(wcSrc).toContain('recirculation');
+    expect(wcSrc).toContain('everlit');
+  });
+
+  test('cleanup removes "ADVERTISEMENT" text labels', () => {
+    expect(wcSrc).toContain('adTextPatterns');
+    expect(wcSrc).toContain('/^advertisement$/i');
+    expect(wcSrc).toContain('/article continues/i');
+    expect(wcSrc).toContain('ad labels');
+  });
+
+  test('sticky cleanup preserves topmost full-width nav bar', () => {
+    // Should preserve the first full-width element near the top
+    expect(wcSrc).toContain('preservedTopNav');
+    expect(wcSrc).toContain('viewportWidth * 0.8');
+    // Should sort sticky elements by vertical position
+    expect(wcSrc).toContain('sort((a, b) => a.top - b.top)');
   });
 });
 
