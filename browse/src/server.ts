@@ -1873,6 +1873,51 @@ async function start() {
 
   // Initialize sidebar session (load existing or create new)
   initSidebarSession();
+
+  // ─── Tunnel startup (optional) ────────────────────────────────
+  // Start ngrok tunnel if BROWSE_TUNNEL=1 is set.
+  // Reads NGROK_AUTHTOKEN from env or ~/.gstack/ngrok.env.
+  // Reads NGROK_DOMAIN for dedicated domain (stable URL).
+  if (process.env.BROWSE_TUNNEL === '1') {
+    try {
+      // Read ngrok authtoken from env or config file
+      let authtoken = process.env.NGROK_AUTHTOKEN;
+      if (!authtoken) {
+        const ngrokEnvPath = path.join(process.env.HOME || '', '.gstack', 'ngrok.env');
+        if (fs.existsSync(ngrokEnvPath)) {
+          const envContent = fs.readFileSync(ngrokEnvPath, 'utf-8');
+          const match = envContent.match(/^NGROK_AUTHTOKEN=(.+)$/m);
+          if (match) authtoken = match[1].trim();
+        }
+      }
+      if (!authtoken) {
+        console.error('[browse] BROWSE_TUNNEL=1 but no NGROK_AUTHTOKEN found. Set it via env var or ~/.gstack/ngrok.env');
+      } else {
+        const ngrok = await import('@ngrok/ngrok');
+        const domain = process.env.NGROK_DOMAIN;
+        const forwardOpts: any = {
+          addr: port,
+          authtoken,
+        };
+        if (domain) forwardOpts.domain = domain;
+
+        tunnelListener = await ngrok.forward(forwardOpts);
+        tunnelUrl = tunnelListener.url();
+        tunnelActive = true;
+
+        console.log(`[browse] Tunnel active: ${tunnelUrl}`);
+
+        // Update state file with tunnel URL
+        const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
+        stateContent.tunnel = { url: tunnelUrl, domain: domain || null, startedAt: new Date().toISOString() };
+        const tmpState = config.stateFile + '.tmp';
+        fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
+        fs.renameSync(tmpState, config.stateFile);
+      }
+    } catch (err: any) {
+      console.error(`[browse] Failed to start tunnel: ${err.message}`);
+    }
+  }
 }
 
 start().catch((err) => {
