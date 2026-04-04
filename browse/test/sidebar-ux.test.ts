@@ -1499,3 +1499,171 @@ describe('BROWSE_NO_AUTOSTART (sidebar headless prevention)', () => {
     expect(noAutoStart).toBeLessThan(lockAcquisition);
   });
 });
+
+// ─── Tool-result file filtering (sidebar-agent.ts) ──────────────
+
+describe('sidebar-agent hides internal tool-result reads', () => {
+  const agentSrc = fs.readFileSync(path.join(ROOT, 'src', 'sidebar-agent.ts'), 'utf-8');
+
+  test('describeToolCall returns empty for tool-results paths', () => {
+    expect(agentSrc).toContain("input.file_path.includes('/tool-results/')");
+  });
+
+  test('describeToolCall returns empty for .claude/projects paths', () => {
+    expect(agentSrc).toContain("input.file_path.includes('/.claude/projects/')");
+  });
+
+  test('empty description causes early return (no event sent)', () => {
+    // describeToolCall returns '' for internal reads, which means
+    // summarizeToolInput returns '', which means event.input is ''
+    const readHandler = agentSrc.slice(
+      agentSrc.indexOf("if (tool === 'Read'"),
+      agentSrc.indexOf("if (tool === 'Edit'"),
+    );
+    expect(readHandler).toContain("return ''");
+  });
+});
+
+// ─── Sidebar skips empty tool_use entries (sidepanel.js) ────────
+
+describe('sidebar skips empty tool_use descriptions', () => {
+  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+
+  test('tool_use with no input returns early', () => {
+    const toolUseHandler = js.slice(
+      js.indexOf("entry.type === 'tool_use'"),
+      js.indexOf("entry.type === 'tool_use'") + 400,
+    );
+    expect(toolUseHandler).toContain("if (!toolInput) return");
+  });
+});
+
+// ─── Tool calls collapse into "See reasoning" on agent_done ─────
+
+describe('tool calls collapse into reasoning disclosure', () => {
+  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+  const css = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.css'), 'utf-8');
+
+  test('agent_done wraps tool calls in <details> element', () => {
+    const doneHandler = js.slice(
+      js.indexOf("entry.type === 'agent_done'"),
+      js.indexOf("entry.type === 'agent_done'") + 1200,
+    );
+    expect(doneHandler).toContain("createElement('details')");
+    expect(doneHandler).toContain('agent-reasoning');
+  });
+
+  test('disclosure summary shows step count', () => {
+    const doneHandler = js.slice(
+      js.indexOf("entry.type === 'agent_done'"),
+      js.indexOf("entry.type === 'agent_done'") + 1200,
+    );
+    expect(doneHandler).toContain('See reasoning');
+    expect(doneHandler).toContain('tools.length');
+  });
+
+  test('disclosure inserts before text response', () => {
+    const doneHandler = js.slice(
+      js.indexOf("entry.type === 'agent_done'"),
+      js.indexOf("entry.type === 'agent_done'") + 1200,
+    );
+    // Tool calls should appear before the text answer, not after
+    expect(doneHandler).toContain("querySelector('.agent-text')");
+    expect(doneHandler).toContain('insertBefore(details, textEl)');
+  });
+
+  test('CSS styles the reasoning disclosure', () => {
+    expect(css).toContain('.agent-reasoning');
+    expect(css).toContain('.agent-reasoning summary');
+    // Starts collapsed (no [open] by default)
+    expect(css).toContain('.agent-reasoning[open]');
+  });
+
+  test('disclosure uses custom triangle markers', () => {
+    // No default list-style, custom ▶/▼ via ::before
+    expect(css).toContain('list-style: none');
+    expect(css).toMatch(/agent-reasoning summary::before/);
+  });
+});
+
+// ─── Idle timeout disabled in headed mode (server.ts) ───────────
+
+describe('idle timeout behavior (server.ts)', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
+
+  test('idle check skips in headed mode', () => {
+    const idleCheck = serverSrc.slice(
+      serverSrc.indexOf('idleCheckInterval'),
+      serverSrc.indexOf('idleCheckInterval') + 300,
+    );
+    expect(idleCheck).toContain("=== 'headed'");
+    expect(idleCheck).toContain('return');
+  });
+
+  test('sidebar-command resets idle timer', () => {
+    const sidebarCmd = serverSrc.slice(
+      serverSrc.indexOf("url.pathname === '/sidebar-command'"),
+      serverSrc.indexOf("url.pathname === '/sidebar-command'") + 300,
+    );
+    expect(sidebarCmd).toContain('resetIdleTimer');
+  });
+});
+
+// ─── Shutdown kills sidebar-agent daemon (server.ts) ────────────
+
+describe('shutdown cleanup (server.ts)', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
+
+  test('shutdown kills sidebar-agent daemon process', () => {
+    const shutdownFn = serverSrc.slice(
+      serverSrc.indexOf('async function shutdown()'),
+      serverSrc.indexOf('async function shutdown()') + 800,
+    );
+    expect(shutdownFn).toContain('sidebar-agent');
+    expect(shutdownFn).toContain('pkill');
+  });
+});
+
+// ─── Cookie button in sidebar footer ────────────────────────────
+
+describe('cookie import button (sidebar)', () => {
+  const html = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.html'), 'utf-8');
+  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+
+  test('sidebar footer has cookies button', () => {
+    expect(html).toContain('id="copy-cookies"');
+    expect(html).toContain('cookies');
+  });
+
+  test('cookies button navigates to cookie-picker', () => {
+    expect(js).toContain("'copy-cookies'");
+    expect(js).toContain('cookie-picker');
+  });
+});
+
+// ─── Model routing (server.ts) ──────────────────────────────────
+
+describe('sidebar model routing (server.ts)', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
+
+  test('pickSidebarModel routes actions to sonnet', () => {
+    expect(serverSrc).toContain("return 'sonnet'");
+  });
+
+  test('pickSidebarModel routes analysis to opus', () => {
+    expect(serverSrc).toContain("return 'opus'");
+  });
+
+  test('analysis words override action verbs', () => {
+    // ANALYSIS_WORDS check comes before ACTION_PATTERNS
+    const routerFn = serverSrc.slice(
+      serverSrc.indexOf('function pickSidebarModel('),
+      serverSrc.indexOf('function pickSidebarModel(') + 600,
+    );
+    const analysisCheck = routerFn.indexOf('ANALYSIS_WORDS');
+    const actionCheck = routerFn.indexOf('ACTION_PATTERNS');
+    expect(analysisCheck).toBeGreaterThan(0);
+    expect(actionCheck).toBeGreaterThan(0);
+    expect(analysisCheck).toBeLessThan(actionCheck);
+  });
+});
