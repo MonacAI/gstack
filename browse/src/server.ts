@@ -1241,8 +1241,11 @@ async function shutdown(exitCode: number = 0) {
 }
 
 // Handle signals
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+// Node passes the signal name (e.g. 'SIGTERM') as the first arg to listeners.
+// Wrap so shutdown() receives no args — otherwise the string gets passed as
+// exitCode and process.exit() coerces it to NaN, exiting with code 1 instead of 0.
+process.on('SIGTERM', () => shutdown());
+process.on('SIGINT', () => shutdown());
 // Windows: taskkill /F bypasses SIGTERM, but 'exit' fires for some shutdown paths.
 // Defense-in-depth — primary cleanup is the CLI's stale-state detection via health check.
 if (process.platform === 'win32') {
