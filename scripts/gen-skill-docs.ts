@@ -534,10 +534,16 @@ for (const currentHost of hostsToRun) {
       const tokens = Math.round(content.length / 4); // ~4 chars per token
       tokenBudget.push({ skill: relOutput, lines, tokens });
 
-      // Token ceiling check: warn if any generated SKILL.md exceeds ~25K tokens (100KB)
-      const TOKEN_CEILING_BYTES = 100_000;
+      // Token ceiling check: warn if any generated SKILL.md exceeds ~40K tokens (160KB).
+      // The ceiling is a "watch for feature bloat" guardrail, not a hard gate. Modern
+      // flagship models have 200K-1M context windows, so 40K (4-20% of window) is fine.
+      // Prompt caching further reduces the marginal cost of larger skills. This ceiling
+      // exists to catch a runaway preamble or resolver that's grown by 10K+ tokens in
+      // a release, not to force compression on carefully-tuned big skills (ship,
+      // plan-ceo-review, office-hours all legitimately pack 25-35K tokens of behavior).
+      const TOKEN_CEILING_BYTES = 160_000;
       if (content.length > TOKEN_CEILING_BYTES) {
-        console.warn(`⚠️  TOKEN CEILING: ${relOutput} is ${content.length} bytes (~${tokens} tokens), exceeds ${TOKEN_CEILING_BYTES} byte ceiling (~25K tokens)`);
+        console.warn(`⚠️  TOKEN CEILING: ${relOutput} is ${content.length} bytes (~${tokens} tokens), exceeds ${TOKEN_CEILING_BYTES} byte ceiling (~40K tokens)`);
       }
     }
 
