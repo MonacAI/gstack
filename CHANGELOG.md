@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.1.1.0] - 2026-04-18
+## [1.1.2.0] - 2026-04-19
 
 ### Changed
 - **`/checkpoint` is now `/context-save` + `/context-restore`.** Claude Code treats `/checkpoint` as a native rewind alias in current environments, which was shadowing the gstack skill. Symptom: you'd type `/checkpoint`, the agent would describe it as a "built-in you need to type directly," and nothing would get saved. The fix is a clean rename and a split into two skills. One that saves, one that restores. Your old saved files still load via `/context-restore` (storage path unchanged).
@@ -14,9 +14,22 @@
 - **Empty-set bug on macOS.** If you ran `/checkpoint resume` (now `/context-restore`) with zero saved files, `find ... | xargs ls -1t` would fall back to listing your current directory. Confusing output, no clean "no saved contexts yet" message. Replaced with `find | sort -r | head` so empty input stays empty.
 
 ### For contributors
-- New `gstack-upgrade/migrations/v1.1.1.0.sh` removes the stale on-disk `/checkpoint` install so Claude Code's native `/rewind` alias is no longer shadowed. Ownership-guarded: the migration only removes the install if it's a symlink resolving into `~/.claude/skills/gstack/`. A user's own `/checkpoint` skill (regular file, or symlink pointing elsewhere) is preserved with a notice.
+- New `gstack-upgrade/migrations/v1.1.2.0.sh` removes the stale on-disk `/checkpoint` install so Claude Code's native `/rewind` alias is no longer shadowed. Ownership-guarded across three install shapes (directory symlink into gstack, directory with SKILL.md symlinked into gstack, anything else). User-owned `/checkpoint` skills preserved with a notice. Migration hardened after adversarial review: explicit `HOME` unset/empty guard, `realpath` with python3 fallback, `rm --` flag, macOS sidecar handling.
 - `test/migration-checkpoint-ownership.test.ts` ships 7 scenarios covering all 3 install shapes + idempotency + no-op-when-gstack-not-installed + SKILL.md-symlink-outside-gstack. Free tier, ~85ms.
 - Split `checkpoint-save-resume` E2E into `context-save-writes-file` and `context-restore-loads-latest`. The latter seeds two files with scrambled mtimes so the "filename-prefix, not mtime" guarantee is locked in.
+- `context-save` now sanitizes the title in bash (allowlist `[a-z0-9.-]`, cap 60 chars) instead of trusting LLM-side slugification, and appends a random suffix on same-second collisions to enforce the append-only contract.
+- `context-restore` caps its filename listing at 20 most-recent entries so users with 10k+ saved files don't blow the context window.
+- `test/skill-e2e-autoplan-dual-voice.test.ts` was shipped broken on main (wrong `runSkillTest` option names, wrong result-field access, wrong helper signatures, missing Agent/Skill tools). Fixed end-to-end: 1/1 pass on first attempt, $0.68, 211s. Voice-detection regexes now match JSON-shaped tool_use entries and phase-completion markers, not bare prompt-text mentions.
+
+## [1.1.1.0] - 2026-04-18
+
+### Fixed
+- **`/ship` no longer silently lets `VERSION` and `package.json` drift.** Before this fix, `/ship`'s Step 12 read and bumped only the `VERSION` file. Any downstream consumer that reads `package.json` (registry UIs, `bun pm view`, `npm publish`, future helpers) would see a stale semver, and because the idempotency check keyed on `VERSION` alone, the next `/ship` run couldn't detect it had drifted. Now Step 12 classifies into four states — FRESH, ALREADY_BUMPED, DRIFT_STALE_PKG, DRIFT_UNEXPECTED — detects drift in every direction, repairs it via a sync-only path that can't double-bump, and halts loudly when `VERSION` and `package.json` disagree in an ambiguous way.
+- **Hardened against malformed version strings.** `NEW_VERSION` is validated against the 4-digit semver pattern before any write, and the drift-repair path applies the same check to `VERSION` contents before propagating them into `package.json`. Trailing carriage returns and whitespace are stripped from both file reads. If `package.json` is invalid JSON, `/ship` stops loudly instead of silently rewriting a corrupted file.
+
+### For contributors
+- New test file at `test/ship-version-sync.test.ts` — 14 cases covering every branch of the new Step 12 logic, including the critical no-double-bump path (drift-repair must never call the normal bump action), trailing-CR regression, and invalid-semver repair rejection.
+- Review history on this fix: one round of `/plan-eng-review`, one round of `/codex` plan review (found a double-bump bug in the original design), one round of Claude adversarial subagent (found CRLF handling gap and unvalidated `REPAIR_VERSION`). All surfaced issues applied in-branch.
 
 ## [1.1.0.0] - 2026-04-18
 
