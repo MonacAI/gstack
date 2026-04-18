@@ -6,7 +6,7 @@ When I heard Karpathy say this, I wanted to find out how. How does one person sh
 
 I'm [Garry Tan](https://x.com/garrytan), President & CEO of [Y Combinator](https://www.ycombinator.com/). I've worked with thousands of startups — Coinbase, Instacart, Rippling — when they were one or two people in a garage. Before YC, I was one of the first eng/PM/designers at Palantir, cofounded Posterous (sold to Twitter), and built Bookface, YC's internal social network.
 
-**gstack is my answer.** I've been building products for twenty years, and right now I'm shipping more products than I ever have. In the last 60 days: 3 production services, 40+ shipped features, part-time, while running YC full-time. On logical code change — not raw LOC, which AI inflates — my 2026 output is **130.2×** <!-- GSTACK-THROUGHPUT-PLACEHOLDER --> my 2013 output pro-rata. (Public repos only; private work at both eras is excluded to make the comparison apples-to-apples.) AI wrote most of it. The point isn't who typed it, it's what shipped.
+**gstack is my answer.** I've been building products for twenty years, and right now I'm shipping more products than I ever have. In the last 60 days: 3 production services, 40+ shipped features, part-time, while running YC full-time. On logical code change — not raw LOC, which AI inflates — my 2026 output is **207×** my 2013 output pro-rata, measured across 41 public + private `garrytan/*` repos (including Bookface from 2013). AI wrote most of it. The point isn't who typed it, it's what shipped.
 
 **2026 — 1,237 contributions and counting:**
 
