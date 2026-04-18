@@ -136,7 +136,7 @@ This is the most legitimate critique and I'll answer it with specifics.
 
 **Tests.** 2026 commits include test coverage on every non-trivial branch, because gstack's own `/ship` skill won't let me merge without it. Test count across these repos grew from ~100 total in early 2026 to over 2,000 now. They run in CI. They catch regressions. Every gstack PR has a coverage audit in the PR body. I can show you the audits.
 
-**Production signal.** gstack is in 1,000+ distinct project installations (telemetry-reported, community tier, opt-in). gbrain is live and used daily by a small set of beta testers. resend_robot processes email through a real API with paid credits. brain runs my personal assistant — I use it every day. These aren't scaffolds sitting in a drawer.
+**Production signal.** gstack has tens of thousands of daily active users (telemetry-reported, community tier, opt-in). gbrain has hundreds of beta testers running it live. resend_robot processes email through a real API with paid credits. brain runs my personal assistant — I use it every day. These aren't scaffolds sitting in a drawer.
 
 I am NOT going to claim every shipped repo has a million DAUs. Most of these are tools for me, or for small communities, or for internal YC use. The neckbeard is right that "I shipped it" is not "it's used." But the same was true of my 2013 output, and the 2013 baseline isn't "shipped AND adopted," it's "shipped." The comparison is fair.
 
