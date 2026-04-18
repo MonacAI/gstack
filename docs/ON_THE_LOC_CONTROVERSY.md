@@ -207,7 +207,7 @@ bun run scripts/garry-output-comparison.ts --repo-root <path>
 #   multiples.run_rate.logical_per_day     (per-day pace ratio)
 ```
 
-If you want to run it against my full corpus, you'd need read access to my private repos. For the public 15, `gh repo list garrytan --visibility=public` gives you the list.
+You can't run it against my full corpus. Bookface and Posthaven code is private. But I've open-sourced gstack and gbrain, which between them have tens of thousands of GitHub stars and tens of thousands of confirmed regular users. These are some of the most-used open source projects in the world that didn't exist three months ago. `gh repo list garrytan --visibility=public` for the list.
 
 The script is under MIT. Fork it. Point it at your own email aliases. Run it against your own commits, 2013 vs 2026. If your number isn't 10x up, ask why. If it is, the argument about LOC was always about who's been doing the math and who hasn't.
 
