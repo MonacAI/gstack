@@ -1,0 +1,47 @@
+{
+  "computed_at": "2026-04-18T03:57:34Z",
+  "scc_available": true,
+  "years": [
+    {
+      "year": 2013,
+      "active": true,
+      "commits": 2,
+      "files_touched": 36,
+      "raw_lines_added": 3250,
+      "logical_lines_added": 2384,
+      "active_weeks": 1,
+      "repos_contributed": 1,
+      "caveats": [
+        "Aggregated across 1 public repos with activity in this year.",
+        "Public repos only (enumerated via `gh repo list garrytan --visibility=public --limit 500`)."
+      ]
+    },
+    {
+      "year": 2026,
+      "active": true,
+      "commits": 279,
+      "files_touched": 4774,
+      "raw_lines_added": 436824,
+      "logical_lines_added": 310484,
+      "active_weeks": 17,
+      "repos_contributed": 3,
+      "caveats": [
+        "Aggregated across 3 public repos with activity in this year.",
+        "Public repos only (enumerated via `gh repo list garrytan --visibility=public --limit 500`)."
+      ]
+    }
+  ],
+  "multiples": {
+    "logical_lines_added": 130.2,
+    "commits_per_week": 8.2,
+    "raw_lines_added": 134.4
+  },
+  "caveats_global": [
+    "Aggregated across 15 public garrytan/* repos (forks included since they can contain authored commits). Private work at both eras is excluded.",
+    "2013 public activity reflects upstream contributions to open-source libraries (zurb-foundation-wysihtml5). 2013 private work at YC (Bookface) and Posterous-era work is excluded.",
+    "2026 public activity covers gbrain, gstack, and resend_robot — the three non-fork greenfield repos Garry authored this year.",
+    "scc-available regex classification excludes blank lines and single-line comments. Approximate; does not catch block comments or docstrings.",
+    "Authorship via commit email filter: garry@ycombinator.com + historical aliases."
+  ],
+  "version": 1
+}
